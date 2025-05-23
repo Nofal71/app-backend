@@ -1,7 +1,6 @@
 {
   "name": "teamsappbackend",
-  "version": "1.0.0",
-  "main": "src/app.js",
+  "version": "1.0.1",
   "scripts": {
     "start": "node src/app.js"
   },
