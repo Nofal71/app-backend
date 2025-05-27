@@ -109,6 +109,54 @@ router.get('/user-roles', async (req, res) => {
   }
 });
 
+router.get('/paginateData/:siteName/:listName', async (req, res) => {
+  try {
+    const { siteName, listName } = req.params;
+    const { pageSize = 10, pageToken = null, email, date } = req.query;
+
+    const graphClient = await initGraphClient();
+
+    const siteResult = await graphClient.api(`/sites?search=${siteName}`).get();
+    const site = siteResult.value?.[0];
+    if (!site?.id) return res.status(404).json({ error: `Site '${siteName}' not found` });
+
+    const listsResult = await graphClient.api(`/sites/${site.id}/lists`).get();
+    const list = listsResult.value.find(l => l.name.toLowerCase() === listName.toLowerCase());
+    if (!list?.id) return res.status(404).json({ error: `List '${listName}' not found` });
+
+    let request = graphClient
+      .api(`/sites/${site.id}/lists/${list.id}/items`)
+      .expand('fields')
+      .top(Number(pageSize));
+
+    if (pageToken) request = request.header('skiptoken', pageToken);
+
+    const result = await request.get();
+    let items = result.value;
+
+    items = items.filter(item => {
+      const fields = item.fields || {};
+      const matchEmail = email ? fields.Email?.toLowerCase() === email.toLowerCase() : true;
+      const matchDate = date ? fields.Date?.split('T')[0] === date : true;
+      return matchEmail && matchDate;
+    });
+
+
+
+    const uniqueEmails = [...new Set(items.map(i => i.fields?.Email).filter(Boolean))];
+
+    res.status(200).json({
+      items,
+      nextLink: result['@odata.nextLink'] || null,
+      uniqueEmails,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Pagination failed', detail: error.message });
+  }
+});
+
+
+
 router.patch('/update-item', authMiddleware, async (req, res) => {
   try {
     const { payload, siteName, listName, itemId } = req.body;
