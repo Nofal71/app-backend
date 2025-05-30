@@ -15,11 +15,11 @@ const initGraphClient = async () => {
   });
 };
 
-router.post('/create-item', authMiddleware, async (req, res) => {
+router.get('/get-sites-data', async (req, res) => {
   try {
-    const { payload, siteName, listName } = req.body;
-    if (!siteName || !listName) {
-      return res.status(400).json({ error: 'Missing siteName or listName' });
+    const { siteName, userRoles, AttendanceTimeLine } = req.query;
+    if (!siteName || !userRoles || !AttendanceTimeLine) {
+      return res.status(400).json({ error: 'Missing Params' });
     }
 
     const graphClient = await initGraphClient();
@@ -30,84 +30,71 @@ router.post('/create-item', authMiddleware, async (req, res) => {
     }
 
     const lists = await graphClient.api(`/sites/${site.id}/lists`).get();
-    const list = lists.value.find(l => l.name.toLowerCase() === listName.toLowerCase());
-    if (!list?.id) {
-      return res.status(404).json({ error: `List '${listName}' not found` });
+    const userROLES = lists.value.find(l => l.name.toLowerCase() === userRoles.toLowerCase());
+    if (!userROLES?.id) {
+      return res.status(404).json({ error: `List '${userRoles}' not found` });
     }
 
-    await graphClient.api(`/sites/${site.id}/lists/${list.id}/items`).post(payload);
+    const AttendanceTimeline = lists.value.find(l => l.name.toLowerCase() === AttendanceTimeLine.toLowerCase());
+    if (!AttendanceTimeline?.id) {
+      return res.status(404).json({ error: `List '${AttendanceTimeLine}' not found` });
+    }
+
+    res.status(200).json({ HR_Operations: site, userROLES, AttendanceTimeline });
+  } catch (error) {
+    res.status(500).json({ error: 'Graph API failed', detail: error.message });
+  }
+});
+
+router.post('/create-item', authMiddleware, async (req, res) => {
+  try {
+    const { payload, siteId, listId } = req.body;
+    if (!siteId || !listId) {
+      return res.status(400).json({ error: 'Missing siteName or listName' });
+    }
+    const graphClient = await initGraphClient();
+    await graphClient.api(`/sites/${siteId}/lists/${listId}/items`).post(payload);
     res.status(200).json({ message: 'Item created successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Graph API failed', detail: error.message });
   }
 });
 
-router.post('/get-item', async (req, res) => {
+router.get('/get-item', async (req, res) => {
   try {
-    const { formattedDate, userMail, siteName, listName } = req.body;
-    if (!formattedDate || !userMail || !siteName || !listName) {
+    const { siteId, listId, filter } = req.query;
+    if (!siteId || !listId) {
       return res.status(400).json({ error: 'Missing required parameters' });
     }
-
     const graphClient = await initGraphClient();
-    const siteResult = await graphClient.api(`/sites?search=${siteName}`).get();
-    const site = siteResult.value?.[0];
-    if (!site?.id) {
-      return res.status(404).json({ error: `Site '${siteName}' not found` });
+    let filterQuery = '', itemsResult;
+
+    if (filter) {
+      let parsedData = JSON.parse(filter)
+      parsedData.map((e, i) => {
+        filterQuery = filterQuery + `fields/${e.field} eq '${e.item}'`
+        if (i !== parsedData.length - 1) filterQuery = filterQuery + ` and `
+      })
+      itemsResult = await graphClient
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .filter(filterQuery)
+        .expand('fields')
+        .header('Prefer', 'HonorNonIndexedQueriesWarningMayFailRandomly')
+        .get();
+    } else {
+      itemsResult = await graphClient.api(`/sites/${siteId}/lists/${listId}/items`).get();
     }
 
-    const listsResult = await graphClient.api(`/sites/${site.id}/lists`).get();
-    const list = listsResult.value.find(l => l.name === listName);
-    if (!list?.id) {
-      return res.status(404).json({ error: `List '${listName}' not found` });
-    }
-
-    const filterQuery = `fields/Email eq '${userMail}' and fields/Date eq '${formattedDate}'`;
-    const itemsResult = await graphClient
-      .api(`/sites/${site.id}/lists/${list.id}/items`)
-      .filter(filterQuery)
-      .expand('fields')
-      .header('Prefer', 'HonorNonIndexedQueriesWarningMayFailRandomly')
-      .get();
 
     if (!itemsResult.value?.length) {
       return res.status(404).json({ error: 'No matching item found' });
     }
-
-    res.status(200).json({ id: itemsResult.value[0].id, fields: itemsResult.value });
+    res.status(200).json({ fields: itemsResult.value });
   } catch (error) {
     res.status(500).json({ error: 'Graph API failed', detail: error.message });
   }
 });
 
-router.get('/user-roles', async (req, res) => {
-  try {
-    const graphClient = await initGraphClient();
-    const result = await graphClient.api('/sites?search=HROperations').get();
-    const site = result.value?.[0];
-    if (!site?.id) {
-      return res.status(404).json({ error: 'Site HROperations not found' });
-    }
-
-    const listsResult = await graphClient.api(`/sites/${site.id}/lists`).get();
-    const userRolesList = listsResult.value.find(list => list.name === 'UserRoles');
-    if (!userRolesList?.id) {
-      return res.status(404).json({ error: 'List UserRoles not found' });
-    }
-
-    const itemsResult = await graphClient
-      .api(`/sites/${site.id}/lists/${userRolesList.id}/items?expand=fields($select=Email)`)
-      .get();
-
-    const emails = itemsResult.value
-      .map(item => item.fields?.Email)
-      .filter(email => !!email);
-
-    res.status(200).json({ emails });
-  } catch (error) {
-    res.status(500).json({ error: 'Graph API failed', detail: error.message });
-  }
-});
 
 router.get('/paginateData/:siteName/:listName', async (req, res) => {
   try {
@@ -155,16 +142,32 @@ router.get('/paginateData/:siteName/:listName', async (req, res) => {
   }
 });
 
-
-
 router.patch('/update-item', authMiddleware, async (req, res) => {
   try {
-    const { payload, siteName, listName, itemId } = req.body;
-    if (!siteName || !listName || !itemId) {
+    const { payload, siteId, listId, itemId } = req.body;
+    if (!siteId || !listId || !itemId) {
       return res.status(400).json({ error: 'Missing required parameters' });
     }
 
     const graphClient = await initGraphClient();
+    await graphClient.api(`/sites/${siteId}/lists/${listId}/items/${itemId}`).patch(payload);
+    res.status(200).json({ message: 'Item updated successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Graph API failed', detail: error.message });
+  }
+});
+
+
+router.get('/user-reports', authMiddleware, async (req, res) => {
+  try {
+    const { userMail, siteName, listName, filter } = req.query;
+
+    if (!siteName || !listName || !userMail || !filter) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    const graphClient = await initGraphClient();
+
     const siteSearch = await graphClient.api(`/sites?search=${siteName}`).get();
     const site = siteSearch.value?.[0];
     if (!site?.id) {
@@ -177,11 +180,29 @@ router.patch('/update-item', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: `List '${listName}' not found` });
     }
 
-    await graphClient.api(`/sites/${site.id}/lists/${list.id}/items/${itemId}`).patch(payload);
-    res.status(200).json({ message: 'Item updated successfully' });
+    const parsedFilters = JSON.parse(filter);
+
+    const hasMonth = !!parsedFilters.month;
+    const hasDateRange = parsedFilters.startDate && parsedFilters.endDate;
+
+    if (hasMonth && hasDateRange) {
+      return res.status(400).json({ error: "Cannot use both 'month' and 'startDate/endDate' filters simultaneously." });
+    }
+
+    const items = await graphClient
+      .api(`/sites/${site.id}/lists/${list.id}/items`)
+      .filter(`fields/Email eq '${userMail}' and fields/Date ge '${parsedFilters.startDate}' and fields/Date lt '${parsedFilters.endDate}'`).expand('fields')
+      .header('Prefer', 'HonorNonIndexedQueriesWarningMayFailRandomly')
+      .get();
+
+
+    return res.status(200).json({ success: true, data: items });
+
   } catch (error) {
+    console.error('Graph API Error:', error);
     res.status(500).json({ error: 'Graph API failed', detail: error.message });
   }
 });
+
 
 module.exports = router;
