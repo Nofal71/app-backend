@@ -3,6 +3,7 @@ const { OnBehalfOfUserCredential } = require('@microsoft/teamsfx');
 const { TokenCredentialAuthenticationProvider } = require('@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials');
 const { Client } = require('@microsoft/microsoft-graph-client');
 const config = require('../config/config');
+const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 
@@ -11,11 +12,18 @@ router.get('/user-profile', async (req, res) => {
   if (!accessToken) {
     return res.status(400).json({ error: 'No access token found in request header' });
   }
+  const decoded = jwt.decode(accessToken);
+  
+  if (!decoded || !decoded.tid) {
+    return res.status(400).json({ error: 'Tenant ID not found in token' });
+  }
+
+  const tenantId = decoded.tid;
 
   const oboAuthConfig = {
     authorityHost: config.authorityHost,
     clientId: config.clientId,
-    tenantId: config.tenantId,
+    tenantId: tenantId,
     clientSecret: config.clientSecret
   };
 

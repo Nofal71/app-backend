@@ -39,5 +39,4 @@ Example output:
 You will now receive the CV content. Return the response exactly in the format specified above.
 `;
 
-
 module.exports = SYSTEM_PROMPT;
