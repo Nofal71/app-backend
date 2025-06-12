@@ -440,4 +440,23 @@ router.get('/user-reports', authMiddleware, async (req, res) => {
 });
 
 
+router.delete('/delete-item', authMiddleware, async (req, res) => {
+  try {
+    const { siteId, listId, itemId } = req.query;
+    const { tenantId } = req;
+    if (!siteId || !listId || !itemId) {
+      return res.status(400).json({ error: 'Missing required parameters: siteId, listId, itemId' });
+    }
+
+    const graphClient = await initGraphClient(tenantId);
+    
+    await graphClient.api(`/sites/${siteId}/lists/${listId}/items/${itemId}`).delete();
+
+    res.status(200).json({ message: 'Item deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Graph API failed', detail: error.message });
+  }
+});
+
+
 module.exports = router;
